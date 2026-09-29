@@ -1,0 +1,38 @@
+name: Update IPTV Playlist
+
+# Runs automatically every day at 04:00 UTC, and can also be run manually
+# from the "Actions" tab in GitHub whenever you want a fresh update.
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch: {}
+
+# Allow the workflow to commit the updated file back to the repo
+permissions:
+  contents: write
+
+jobs:
+  update-playlist:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg (provides ffprobe)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Run merge and cleanup script
+        run: python update_playlist.py
+
+      - name: Commit updated playlist
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add merged_cleaned.m3u
+          git diff --quiet --cached || git commit -m "Auto-update playlist"
+          git push
