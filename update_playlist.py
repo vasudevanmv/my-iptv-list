@@ -24,9 +24,9 @@ import urllib.request
 # Browse https://github.com/iptv-org/iptv/tree/master/streams to find
 # more country/category/language files, then use the "Raw" link for each.
 SOURCE_URLS = [
-    "https://iptv-org.github.io/iptv/languages/mal.m3u"
-    "https://iptv-org.github.io/iptv/categories/documentary.m3u"
-    "https://iptv-org.github.io/iptv/countries/in.m3u"
+    "https://iptv-org.github.io/iptv/languages/mal.m3u",
+    "https://iptv-org.github.io/iptv/categories/documentary.m3u",
+    "https://iptv-org.github.io/iptv/countries/in.m3u",
     "https://iptv-org.github.io/iptv/index.language.m3u",
     "https://iptv-org.github.io/iptv/index.country.m3u",
     "https://iptv-org.github.io/iptv/index.category.m3u",
