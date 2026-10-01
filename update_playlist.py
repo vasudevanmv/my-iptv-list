@@ -11,6 +11,7 @@ setup.
 """
 
 import os
+import re
 import sys
 import subprocess
 import concurrent.futures
@@ -20,18 +21,25 @@ import urllib.request
 # SETTINGS - edit this list to add/remove source playlists
 # ---------------------------------------------------------------------
 
-# Raw URLs of M3U files from https://github.com/iptv-org/iptv
-# Browse https://github.com/iptv-org/iptv/tree/master/streams to find
-# more country/category/language files, then use the "Raw" link for each.
+# Each entry is (url, override_group_title).
+#   - If override_group_title is a name (e.g. "Malayalam"), every channel
+#     from that source gets its group-title forcibly set to that name,
+#     so it shows up as ONE top-level category in your player instead of
+#     whatever sub-categories (News, Sports, etc.) the source file used.
+#   - If override_group_title is None, the channel's own original
+#     group-title is kept as-is. Use this for the big index files so
+#     they keep their normal country/category/language grouping.
+#
+# Order matters: earlier sources "win" when the same channel appears in
+# more than one list (duplicates are removed, first one seen is kept).
 SOURCE_URLS = [
-    "https://iptv-org.github.io/iptv/languages/mal.m3u",
-    "https://iptv-org.github.io/iptv/categories/documentary.m3u",
-    "https://iptv-org.github.io/iptv/countries/in.m3u",
-    "https://iptv-org.github.io/iptv/index.language.m3u",
-    "https://iptv-org.github.io/iptv/index.country.m3u",
-    "https://iptv-org.github.io/iptv/index.category.m3u",
-    "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8",
-    # add more lines here, one URL per line, comma at the end
+    ("https://iptv-org.github.io/iptv/languages/mal.m3u", "Malayalam"),
+    ("https://iptv-org.github.io/iptv/categories/documentary.m3u", "Documentary"),
+    ("https://iptv-org.github.io/iptv/categories/news.m3u", "News"),
+    ("https://iptv-org.github.io/iptv/categories/movies.m3u", "Movies"),
+    ("https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8", None),
+    ("https://iptv-org.github.io/iptv/index.country.m3u", None),    
+    # add more lines here as ("url", "OverrideName") or ("url", None)
 ]
 
 OUTPUT_FILE = "merged_cleaned.m3u"
@@ -66,6 +74,19 @@ def parse_m3u_text(text):
                 channels.append((current_extinf, line))
                 current_extinf = None
     return channels
+
+
+def set_group_title(extinf_line, new_group):
+    """Force the group-title="..." attribute on an #EXTINF line to new_group.
+    If the line has no group-title attribute at all, one is inserted."""
+    if re.search(r'group-title="[^"]*"', extinf_line):
+        return re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', extinf_line)
+    # No group-title present - insert one right before the trailing
+    # ",Channel Name" part.
+    if "," in extinf_line:
+        head, name = extinf_line.rsplit(",", 1)
+        return f'{head} group-title="{new_group}",{name}'
+    return extinf_line
 
 
 def get_channel_name(extinf_line):
@@ -104,9 +125,13 @@ def main():
 
     print("Step 1: Downloading and merging source lists...")
     all_channels = []
-    for url in SOURCE_URLS:
+    for url, override_group in SOURCE_URLS:
         text = download_m3u_text(url)
-        all_channels.extend(parse_m3u_text(text))
+        channels = parse_m3u_text(text)
+        if override_group:
+            channels = [(set_group_title(extinf, override_group), stream_url)
+                        for extinf, stream_url in channels]
+        all_channels.extend(channels)
     print(f"  Total channels found (before dedup): {len(all_channels)}")
 
     print("\nStep 2: Removing duplicate channels (same stream URL)...")
