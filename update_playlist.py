@@ -2,12 +2,13 @@
 update_playlist.py
 -------------------
 Runs inside GitHub Actions (not on your PC). Downloads the M3U lists
-listed in SOURCE_URLS, merges them, removes duplicate channels, checks
-which streams are actually alive, and writes merged_cleaned.m3u.
+named in CATEGORY_RULES, sorts channels into your categories, removes
+duplicate channels, checks which streams are actually alive, and writes
+merged_cleaned.m3u.
 
 You normally do NOT need to run this yourself - GitHub Actions runs it
-on a schedule automatically. See SETUP_INSTRUCTIONS.md for the one-time
-setup.
+on a schedule automatically. To change categories, only edit the
+CATEGORY_RULES block below. See README.md for details.
 """
 
 import os
@@ -18,29 +19,57 @@ import concurrent.futures
 import urllib.request
 
 # ---------------------------------------------------------------------
-# SETTINGS - edit this list to add/remove source playlists
+# SETTINGS - this is the only part you normally need to edit
 # ---------------------------------------------------------------------
 
-# Each entry is (url, override_group_title).
-#   - If override_group_title is a name (e.g. "Malayalam"), every channel
-#     from that source gets its group-title forcibly set to that name,
-#     so it shows up as ONE top-level category in your player instead of
-#     whatever sub-categories (News, Sports, etc.) the source file used.
-#   - If override_group_title is None, the channel's own original
-#     group-title is kept as-is. Use this for the big index files so
-#     they keep their normal country/category/language grouping.
+# Handy names for lists, so the rules below stay short and readable.
+# Add your own (e.g. HINDI = ".../languages/hin.m3u") and use them in rules.
+BASE = "https://iptv-org.github.io/iptv"
+MAL = f"{BASE}/languages/mal.m3u"
+ENG = f"{BASE}/languages/eng.m3u"
+MOVIES = f"{BASE}/categories/movies.m3u"
+NEWS = f"{BASE}/categories/news.m3u"
+DOCUMENTARY = f"{BASE}/categories/documentary.m3u"
+COUNTRY_INDEX = f"{BASE}/index.country.m3u"
+FREE_TV = "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8"
+
+# CATEGORY_RULES - one list, processed top to bottom. Each rule is:
 #
-# Order matters: earlier sources "win" when the same channel appears in
-# more than one list (duplicates are removed, first one seen is kept).
-SOURCE_URLS = [
-    ("https://iptv-org.github.io/iptv/languages/mal.m3u", "Malayalam"),
-    ("https://iptv-org.github.io/iptv/categories/documentary.m3u", "Documentary"),
-    ("https://iptv-org.github.io/iptv/categories/news.m3u", "News"),
-    ("https://iptv-org.github.io/iptv/categories/movies.m3u", "Movies"),
-    ("https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8", None),
-    ("https://iptv-org.github.io/iptv/index.country.m3u", None),    
-    # add more lines here as ("url", "OverrideName") or ("url", None)
+#     (source_list, "Category Name" or None, [filters])
+#
+# source_list   : which list the channels are taken from.
+# Category Name : every channel kept by this rule is renamed into this
+#                 category. Use None to keep each channel's own original
+#                 category (used for the country index and Free-TV).
+# filters       : a list of conditions a channel must pass to be kept.
+#                 Each condition is ("in", some_list) or ("not_in", some_list)
+#                 meaning "the channel must be (or must not be) present in
+#                 that other list". Matching is done on the stream URL.
+#                 An empty list [] means keep every channel from the source.
+#                 With several filters, a channel must pass ALL of them.
+#
+# ORDER MATTERS: rules run top to bottom. If the same stream appears in
+# more than one rule, the FIRST rule that picked it wins and later copies
+# are dropped. So put specific categories first and broad catch-all
+# lists (Free-TV, country index) last.
+CATEGORY_RULES = [
+    (MAL,         "Malayalam",   []),
+    (DOCUMENTARY, "Documentary", [("in", ENG)]),
+    (NEWS,        "News",        [("in", ENG)]),
+    (MOVIES, "Movies English",       [("in", ENG)]),
+    (MOVIES, "Movies International", [("not_in", ENG)]),
+    (FREE_TV,     None,          []),
+    (COUNTRY_INDEX, None,        []),
 ]
+
+# ---- Ideas for later (copy a line into CATEGORY_RULES above, ABOVE the
+# ---- broader rule it should take channels from) ----
+#
+#   (NEWS,   "Malayalam News",   [("in", MAL)]),               # news channels that are Malayalam
+#   (MOVIES, "Malayalam Movies", [("in", MAL)]),               # movie channels that are Malayalam
+#   (MOVIES, "English Movies",       [("in", ENG)]),           # split Movies in two ...
+#   (MOVIES, "International Movies", [("not_in", ENG)]),       # ... instead of one "Movies" line
+#   (NEWS,   "International News",   [("not_in", ENG), ("not_in", MAL)]),
 
 OUTPUT_FILE = "merged_cleaned.m3u"
 MAX_WORKERS = 20
@@ -123,18 +152,43 @@ def main():
         print("ERROR: ffprobe not found on this runner.")
         sys.exit(1)
 
-    print("Step 1: Downloading and merging source lists...")
-    all_channels = []
-    for url, override_group in SOURCE_URLS:
-        text = download_m3u_text(url)
-        channels = parse_m3u_text(text)
-        if override_group:
-            channels = [(set_group_title(extinf, override_group), stream_url)
-                        for extinf, stream_url in channels]
-        all_channels.extend(channels)
-    print(f"  Total channels found (before dedup): {len(all_channels)}")
+    # Every list is downloaded only once, even if several rules or filters
+    # use it. get_channels() remembers what it already fetched.
+    cache = {}
 
-    print("\nStep 2: Removing duplicate channels (same stream URL)...")
+    def get_channels(url):
+        if url not in cache:
+            cache[url] = parse_m3u_text(download_m3u_text(url))
+        return cache[url]
+
+    def stream_urls_of(url):
+        return {stream_url for _, stream_url in get_channels(url)}
+
+    print("Processing each rule in order...")
+    all_channels = []
+    for source, category_name, filters in CATEGORY_RULES:
+        channels = get_channels(source)
+
+        for mode, filter_list in filters:
+            if mode not in ("in", "not_in"):
+                print(f"  ERROR: unknown filter '{mode}' - use \"in\" or \"not_in\".")
+                sys.exit(1)
+            wanted = stream_urls_of(filter_list)
+            if mode == "in":
+                channels = [(e, u) for e, u in channels if u in wanted]
+            else:
+                channels = [(e, u) for e, u in channels if u not in wanted]
+
+        if category_name:
+            channels = [(set_group_title(e, category_name), u) for e, u in channels]
+
+        all_channels.extend(channels)
+        label = category_name if category_name else "(original categories kept)"
+        print(f"  -> {len(channels):5d} channels  {label}   <- {source}")
+
+    print(f"\nTotal channels found (before dedup): {len(all_channels)}")
+
+    print("\nStep 1: Removing duplicate channels (same stream URL)...")
     seen_urls = set()
     deduped = []
     for extinf, url in all_channels:
@@ -143,7 +197,7 @@ def main():
             deduped.append((extinf, url))
     print(f"  Channels remaining after dedup: {len(deduped)}")
 
-    print(f"\nStep 3: Checking which of {len(deduped)} streams are alive...")
+    print(f"\nStep 2: Checking which of {len(deduped)} streams are alive...")
     alive_channels = []
     checked_count = 0
     total = len(deduped)
@@ -161,7 +215,7 @@ def main():
             if is_alive:
                 alive_channels.append((extinf, url))
 
-    print(f"\nStep 4: Writing {len(alive_channels)} live channels to {OUTPUT_FILE}...")
+    print(f"\nStep 3: Writing {len(alive_channels)} live channels to {OUTPUT_FILE}...")
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write("#EXTM3U\n")
         for extinf, url in alive_channels:
