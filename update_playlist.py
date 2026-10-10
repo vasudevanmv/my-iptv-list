@@ -58,7 +58,7 @@ CATEGORY_RULES = [
     (NEWS,        "News",        [("in", ENG)]),
     (MOVIES, "Movies English",       [("in", ENG)]),
     (MOVIES, "Movies International", [("not_in", ENG)]),
-    (FREE_TV,     None,          []),
+    (FREE_TV,     "FreeTV",          []),
     (COUNTRY_INDEX, None,        []),
 ]
 
