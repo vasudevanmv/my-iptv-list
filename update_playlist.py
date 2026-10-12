@@ -31,7 +31,7 @@ MOVIES = f"{BASE}/categories/movies.m3u"
 NEWS = f"{BASE}/categories/news.m3u"
 DOCUMENTARY = f"{BASE}/categories/documentary.m3u"
 COUNTRY_INDEX = f"{BASE}/index.country.m3u"
-FREE_TV = "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8"
+#FREE_TV = "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8"
 
 # CATEGORY_RULES - one list, processed top to bottom. Each rule is:
 #
@@ -58,7 +58,7 @@ CATEGORY_RULES = [
     (NEWS,        "News",        [("in", ENG)]),
     (MOVIES, "Movies English",       [("in", ENG)]),
     (MOVIES, "Movies International", [("not_in", ENG)]),
-    (FREE_TV,     "FreeTV",          []),
+    #(FREE_TV,     None,          []),
     (COUNTRY_INDEX, None,        []),
 ]
 
