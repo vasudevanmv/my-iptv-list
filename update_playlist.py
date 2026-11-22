@@ -31,7 +31,7 @@ MOVIES = f"{BASE}/categories/movies.m3u"
 NEWS = f"{BASE}/categories/news.m3u"
 DOCUMENTARY = f"{BASE}/categories/documentary.m3u"
 COUNTRY_INDEX = f"{BASE}/index.country.m3u"
-#FREE_TV = "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8"
+FREE_TV = "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8"
 
 # CATEGORY_RULES - one list, processed top to bottom. Each rule is:
 #
@@ -54,11 +54,10 @@ COUNTRY_INDEX = f"{BASE}/index.country.m3u"
 # lists (Free-TV, country index) last.
 CATEGORY_RULES = [
     (MAL,         "Malayalam",   []),
-    (DOCUMENTARY, "Documentary", [("in", ENG)]),
+    (MOVIES,      "Movies",      []),
     (NEWS,        "News",        [("in", ENG)]),
-    (MOVIES, "Movies English",       [("in", ENG)]),
-    (MOVIES, "Movies International", [("not_in", ENG)]),
-    #(FREE_TV,     None,          []),
+    (DOCUMENTARY, "Documentary", [("in", ENG)]),
+    (FREE_TV,     None,          []),
     (COUNTRY_INDEX, None,        []),
 ]
 
@@ -71,9 +70,21 @@ CATEGORY_RULES = [
 #   (MOVIES, "International Movies", [("not_in", ENG)]),       # ... instead of one "Movies" line
 #   (NEWS,   "International News",   [("not_in", ENG), ("not_in", MAL)]),
 
+# ALWAYS_KEEP - channels listed here are never tested and never removed,
+# even if the automated check would mark them dead (useful for streams
+# that work for you but fail from GitHub's servers, e.g. region-locked).
+# Each entry is matched against the channel name (ignoring upper/lower
+# case, partial match is fine) OR can be the exact stream URL.
+# "Safari TV" also covers variants like "Safari TV (576p)".
+ALWAYS_KEEP = [
+    "Safari TV",
+    # "Another Channel Name",
+]
+
 OUTPUT_FILE = "merged_cleaned.m3u"
-MAX_WORKERS = 20
-TIMEOUT_SECONDS = 8
+MAX_WORKERS = 10          # lower = fewer false "dead" results, but slower
+TIMEOUT_SECONDS = 15      # how long to wait for each stream to respond
+ATTEMPTS = 2              # a stream must fail this many times to be marked dead
 
 # ---------------------------------------------------------------------
 
@@ -125,24 +136,36 @@ def get_channel_name(extinf_line):
 
 
 def check_stream_alive(url):
-    try:
-        result = subprocess.run(
-            [
-                "ffprobe",
-                "-v", "error",
-                "-timeout", str(TIMEOUT_SECONDS * 1_000_000),
-                "-select_streams", "v:0",
-                "-show_entries", "stream=codec_type",
-                "-of", "csv=p=0",
-                url,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=TIMEOUT_SECONDS + 5,
-        )
-        return result.returncode == 0 and result.stdout.strip() != ""
-    except Exception:
-        return False
+    for _ in range(ATTEMPTS):
+        try:
+            result = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v", "error",
+                    "-timeout", str(TIMEOUT_SECONDS * 1_000_000),
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=codec_type",
+                    "-of", "csv=p=0",
+                    url,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=TIMEOUT_SECONDS + 5,
+            )
+            if result.returncode == 0 and result.stdout.strip() != "":
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def is_always_keep(extinf, url):
+    name = get_channel_name(extinf).lower()
+    for entry in ALWAYS_KEEP:
+        entry = entry.strip()
+        if entry and (entry.lower() in name or entry == url):
+            return True
+    return False
 
 
 def main():
@@ -204,13 +227,15 @@ def main():
 
     def worker(item):
         extinf, url = item
+        if is_always_keep(extinf, url):
+            return (extinf, url, "KEEP")
         return (extinf, url, check_stream_alive(url))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         for extinf, url, is_alive in executor.map(worker, deduped):
             checked_count += 1
             name = get_channel_name(extinf)
-            status = "OK  " if is_alive else "DEAD"
+            status = is_alive if is_alive == "KEEP" else ("OK  " if is_alive else "DEAD")
             print(f"  [{checked_count}/{total}] {status} - {name}")
             if is_alive:
                 alive_channels.append((extinf, url))
