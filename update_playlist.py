@@ -54,10 +54,11 @@ FREE_TV = "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8"
 # lists (Free-TV, country index) last.
 CATEGORY_RULES = [
     (MAL,         "Malayalam",   []),
-    (MOVIES,      "Movies",      []),
-    (NEWS,        "News",        [("in", ENG)]),
     (DOCUMENTARY, "Documentary", [("in", ENG)]),
-    (FREE_TV,     None,          []),
+    (MOVIES,      "Movies Eng",      [("in", ENG)]),
+    (MOVIES,      "Movies Intl",      [("not_in", ENG)]),
+    (NEWS,        "News",        [("in", ENG)]),
+    (FREE_TV,     "Free TV",          []),
     (COUNTRY_INDEX, None,        []),
 ]
 
