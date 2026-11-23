@@ -82,9 +82,9 @@ ALWAYS_KEEP = [
 ]
 
 OUTPUT_FILE = "merged_cleaned.m3u"
-MAX_WORKERS = 10          # lower = fewer false "dead" results, but slower
-TIMEOUT_SECONDS = 15      # how long to wait for each stream to respond
-ATTEMPTS = 2              # a stream must fail this many times to be marked dead
+MAX_WORKERS = 20          # streams tested at the same time (higher = faster)
+TIMEOUT_SECONDS = 8       # slower than this = treated as dead (poor channels dropped)
+ATTEMPTS = 2              # set to 2 to give failing streams a second chance (slower)
 
 # ---------------------------------------------------------------------
 
