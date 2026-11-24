@@ -4,7 +4,7 @@ name: Update IPTV Playlist
 # from the "Actions" tab in GitHub whenever you want a fresh update.
 on:
   schedule:
-    - cron: "0 4 * * 0"
+    - cron: "0 4 * * *"
   workflow_dispatch: {}
 
 # Allow the workflow to commit the updated file back to the repo
